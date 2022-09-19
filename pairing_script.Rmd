@@ -1,0 +1,155 @@
+---
+title: "Pairing function"
+author: "Dean Baltiansky"
+date: "2022-09-19"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+library(googlesheets4)
+library(knitr)
+library(gt)
+library(kableExtra)
+library(tidyverse)
+
+#here, we'll read in a google sheet that is updated live as students complete a sign-in google form.
+
+#paste share link into read_sheet function
+df_here <- read_sheet()
+
+#if they have breakout rooms, read those in here
+breakoutrooms <- read.csv()
+
+#knitting this script will generate an html with the pairings and update a webpage
+```
+
+```{r,include=FALSE}
+df_attendance <- df_here %>% 
+  rename(name_form = "To sign in, please select your name from the dropdown menu.",
+         first_name = "First name",
+         last_name = "Last name",) %>% 
+  mutate(name = ifelse(name_form == "My name is not on the list",paste0(last_name,", ",first_name),name_form)) %>% 
+  select(name) %>% 
+  group_by(name) %>% 
+  slice(1) %>% 
+  ungroup()
+
+n_students = nrow(df_attendance)
+is_even = n_students %% 2 == 0
+
+if(is_even){
+  sellers = rep("SELLER",n_students/2)
+  buyers = rep("BUYER",n_students/2)
+} else {
+  sellers = rep("SELLER",(n_students/2) + 0.5)
+  buyers = rep("BUYER",(n_students/2) - 0.5)
+}
+
+roles = c(sellers,buyers)
+
+df_pairs <- df_attendance %>% 
+  mutate(role_1 = roles,
+         role_2 = ifelse(role_1 == "SELLER","BUYER","SELLER"))
+
+if(is_even) {
+  df_pairs <- df_pairs %>% 
+    group_by(role_1) %>% 
+    mutate(pairID_1 = sample(1:(n_students/2), replace = FALSE)) %>%
+    group_by(role_2) %>% 
+    mutate(pairID_2 = sample(1:(n_students/2), replace = FALSE)) %>% 
+    ungroup()
+} else {
+  df_temp1 <- df_pairs %>% 
+    filter(role_1 == "SELLER") %>% 
+    mutate(pairID_1 = sample(1:((n_students/2) + 0.5), replace = FALSE),
+           pairID_2 = sample(1:((n_students/2) + 0.5), replace = FALSE),
+           pairID_1 = ifelse(pairID_1 == max(pairID_1),pairID_1 - 1,pairID_1),
+           pairID_2 = ifelse(pairID_2 == max(pairID_2),pairID_2 - 1,pairID_2))
+  
+  df_temp2 <- df_pairs %>% 
+    filter(role_1 == "BUYER") %>% 
+    mutate(pairID_1 = sample(1:((n_students/2) - 0.5), replace = FALSE),
+           pairID_2 = sample(1:((n_students/2) - 0.5), replace = FALSE))
+  
+  df_pairs <- df_temp1 %>% 
+    bind_rows(df_temp2)
+}
+
+```
+
+```{r,results='asis',echo=FALSE, eval=TRUE}
+if(is_even){
+  df_punk <- df_pairs %>% 
+    select(name,role_1,pairID_1) %>% 
+    pivot_wider(names_from = role_1,
+                values_from = name) %>% 
+    arrange(pairID_1) %>% 
+    rename(pair_ID = pairID_1) %>% 
+    left_join(breakoutrooms,by = "pair_ID") %>% 
+    select(room,SELLER,BUYER) 
+} else{
+  df_punk <- df_pairs %>% 
+    select(name,role_1,pairID_1) %>% 
+    group_by(role_1,pairID_1) %>% 
+    mutate(name_2 = lag(name)) %>% 
+    ungroup() %>% 
+    mutate(name = ifelse(is.na(name_2),name,paste0(name," & ",name_2)),
+           is_doubled = ifelse(name %in% name_2,1,0)) %>% 
+    filter(is_doubled != 1) %>% 
+    select(pairID_1,role_1,name) %>% 
+    pivot_wider(names_from = role_1,
+                values_from = name) %>% 
+    arrange(pairID_1) %>% 
+    rename(pair_ID = pairID_1) %>% 
+    left_join(breakoutrooms,by = "pair_ID") %>% 
+    select(room,SELLER,BUYER) 
+}
+
+write.csv(df_punk,"punk.csv",row.names = F)
+
+df_punk %>% 
+  kbl() %>% 
+  kable_paper("hover", full_width = F) %>% 
+  column_spec(2,color = "darkblue") %>% 
+  column_spec(3,color = "darkgreen")
+
+```
+
+```{r,results='asis',echo=FALSE, eval=TRUE}
+if(is_even){
+  df_syndos <- df_pairs %>% 
+    select(name,role_2,pairID_2) %>% 
+    pivot_wider(names_from = role_2,
+                values_from = name) %>% 
+    arrange(pairID_2) %>% 
+    rename(pair_ID = pairID_2) %>% 
+    left_join(breakoutrooms,by = "pair_ID") %>% 
+    select(room,SELLER,BUYER) 
+} else{
+  df_syndos <- df_pairs %>% 
+    select(name,role_2,pairID_2) %>% 
+    group_by(role_2,pairID_2) %>% 
+    mutate(name_2 = lag(name)) %>% 
+    ungroup() %>% 
+    mutate(name = ifelse(is.na(name_2),name,paste0(name," & ",name_2)),
+           is_doubled = ifelse(name %in% name_2,1,0)) %>% 
+    filter(is_doubled != 1) %>% 
+    select(pairID_2,role_2,name) %>% 
+    pivot_wider(names_from = role_2,
+                values_from = name) %>% 
+    arrange(pairID_2) %>% 
+    rename(pair_ID = pairID_2) %>% 
+    left_join(breakoutrooms,by = "pair_ID") %>% 
+    select(room,SELLER,BUYER) 
+}
+
+write.csv(df_syndos,"syndos.csv",row.names = F)
+
+df_syndos %>% 
+  kbl() %>% 
+  kable_paper("hover", full_width = F) %>% 
+  column_spec(2,color = "darkblue") %>% 
+  column_spec(3,color = "darkgreen")
+
+```
